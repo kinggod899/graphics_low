@@ -23,10 +23,11 @@ from zzz_od.application.zzz_application import ZApplication
 from zzz_od.operation.back_to_normal_world import BackToNormalWorld
 from zzz_od.operation.transport import Transport
 
-from . import graphics_low_const, graphics_low_screen
-from .graphics_low_config import GraphicsLowConfig
-from .graphics_low_screen import GraphicsRow
+from . import const
+from . import screen as graphics_low_screen  # 别名避开函数内表示截图的 screen 变量
+from .config import GraphicsLowConfig
 from .graphics_low_snapshot import GraphicsLowSnapshotConfig
+from .screen import GraphicsRow
 
 if TYPE_CHECKING:
     from numpy import ndarray
@@ -43,16 +44,18 @@ class GraphicsLowApp(ZApplication):
         ZApplication.__init__(
             self,
             ctx=ctx,
-            app_id=graphics_low_const.APP_ID,
-            op_name=graphics_low_const.APP_NAME,
+            app_id=const.APP_ID,
+            op_name=const.APP_NAME,
         )
         self.config: GraphicsLowConfig = self.ctx.run_context.get_config(
-            app_id=graphics_low_const.APP_ID,
+            app_id=const.APP_ID,
             instance_idx=self.ctx.current_instance_idx,
             group_id=application_const.DEFAULT_GROUP_ID,
         )
-        # 快照全局一份，不跟实例走
-        self.snapshot: GraphicsLowSnapshotConfig = GraphicsLowSnapshotConfig()
+        # 快照全局一份，不跟实例走，存在插件数据目录里
+        self.snapshot: GraphicsLowSnapshotConfig = GraphicsLowSnapshotConfig(
+            data_dir=self.ctx.get_plugin_data_dir(const.APP_ID),
+        )
 
     # ─── 通用小工具 ────────────────────────────────────────
 
@@ -283,7 +286,7 @@ def __debug() -> None:
     ctx = ZContext()
     ctx.init()
     ctx.run_context.run_application(
-        app_id=graphics_low_const.APP_ID,
+        app_id=const.APP_ID,
         instance_idx=ctx.current_instance_idx,
         group_id=application_const.DEFAULT_GROUP_ID,
     )

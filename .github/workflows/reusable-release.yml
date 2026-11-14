@@ -41,7 +41,6 @@ jobs:
 
       - name: Validate repository
         run: |
-          python .plugin-template/scripts/generate_const.py --repo . --check
           python .plugin-template/scripts/validate_plugin.py --repo . --strict --expect-tag "$GITHUB_REF_NAME"
 
       - name: Build release asset
@@ -65,7 +64,7 @@ jobs:
           prerelease=""
           if [[ "$VERSION" == *-* ]]; then prerelease="--prerelease"; fi
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$ZIP" --repo "$GITHUB_REPOSITORY"
+            gh release upload "$GITHUB_REF_NAME" "$ZIP" --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$GITHUB_REF_NAME" "$ZIP" --repo "$GITHUB_REPOSITORY" \
               --verify-tag --title "$GITHUB_REF_NAME" --generate-notes $prerelease

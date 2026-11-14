@@ -1,12 +1,12 @@
 """降低画质插件的配置。
 
-只存三个目标档位。原始档位不在这里 —— 快照要全局一份，放在
-graphics_low_snapshot.py 对应的 config/graphics_low_snapshot.yml 里。
+只存四个目标档位：帧率、渲染精度、抗锯齿、字体，按实例分开存。
+原始档位不在这里 —— 快照要全局一份，按实例存的配置放不下，见 snapshot.py。
 """
 
 from one_dragon.base.operation.application.application_config import ApplicationConfig
 
-from . import graphics_low_const
+from . import const
 
 
 class GraphicsLowConfig(ApplicationConfig):
@@ -14,7 +14,7 @@ class GraphicsLowConfig(ApplicationConfig):
     def __init__(self, instance_idx: int, group_id: str) -> None:
         ApplicationConfig.__init__(
             self,
-            app_id=graphics_low_const.APP_ID,
+            app_id=const.APP_ID,
             instance_idx=instance_idx,
             group_id=group_id,
         )

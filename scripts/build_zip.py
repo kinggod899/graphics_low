@@ -7,7 +7,7 @@ import sys
 import zipfile
 from pathlib import Path
 
-from manifest_utils import find_package_dir, is_excluded, load_json, plugin_id
+from manifest_utils import app_id_from_const, find_package_dir, is_excluded, load_json, plugin_id
 
 FIXED_DATE_TIME = (1980, 1, 1, 0, 0, 0)
 
@@ -53,9 +53,12 @@ def main() -> int:
 
     package_dir = find_package_dir(Path(args.repo).resolve())
     manifest = load_json(package_dir / "plugin.json")
-    current_id = plugin_id(manifest)
-    if current_id != package_dir.name:
-        raise ValueError(f"plugin.json id {current_id!r} != directory {package_dir.name!r}")
+    # 运行时身份只认常量文件的 APP_ID；plugin.json 的 id 与目录名都必须与它一致
+    current_id = app_id_from_const(package_dir)
+    if not current_id or current_id != package_dir.name:
+        raise ValueError(f"APP_ID {current_id!r} != directory {package_dir.name!r}")
+    if plugin_id(manifest) != current_id:
+        raise ValueError(f"plugin.json id {plugin_id(manifest)!r} != APP_ID {current_id!r}")
 
     output = Path(args.out).resolve() / f"{current_id}.zip"
     build_zip(package_dir, output)

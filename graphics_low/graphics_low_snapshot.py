@@ -1,25 +1,47 @@
 """原始画质快照。
 
-快照必须全局只有一份：config/graphics_low_snapshot.yml（不带实例目录）。
+快照必须全局只有一份：plugin_data/graphics_low/graphics_low_snapshot.yml（不带实例目录）。
 原因是一条龙会按账号顺序跑多个实例，如果每个实例各存一份快照，
 第二个实例跑降画质时自己的快照是空的，就会把已经调低的档位当成
 「原始档位」记下来，之后恢复画质恢复的是低画质。
 
 游戏客户端本身也只有一套全局画质设置，所以全局一份与实际情况一致。
+
+旧版本写在 config/graphics_low_snapshot.yml，首次打开新文件时迁过来，旧文件保留不删。
 """
 
 from __future__ import annotations
 
-from one_dragon.base.config.yaml_config import YamlConfig
+from pathlib import Path
 
-MODULE_NAME = 'graphics_low_snapshot'
+from one_dragon.base.config.yaml_operator import YamlOperator
+from one_dragon.utils import os_utils
+from one_dragon.utils.log_utils import log
+
+FILE_NAME: str = 'graphics_low_snapshot.yml'
+LEGACY_DIR: str = 'config'  # 旧版本存放快照的目录，相对一条龙工作目录，只用于迁移
 
 
-class GraphicsLowSnapshotConfig(YamlConfig):
+class GraphicsLowSnapshotConfig(YamlOperator):
     """降画质前记下的原始档位，全局唯一。"""
 
-    def __init__(self) -> None:
-        YamlConfig.__init__(self, MODULE_NAME)
+    def __init__(self, data_dir: Path) -> None:
+        YamlOperator.__init__(self, str(Path(data_dir) / FILE_NAME))
+        self._migrate_legacy()
+
+    def _migrate_legacy(self) -> None:
+        """把旧版本写在 config/ 下的快照搬到新位置，只在目标文件不存在时做一次。"""
+        if self.is_file_exists:
+            return
+        legacy_path = Path(os_utils.get_path_under_work_dir(LEGACY_DIR, FILE_NAME))
+        if not legacy_path.is_file():
+            return
+        legacy = YamlOperator(str(legacy_path))
+        if not isinstance(legacy.data, dict) or not legacy.data:
+            return
+        self.data = dict(legacy.data)
+        self.save()
+        log.info(f'原始画质快照已从 {legacy_path} 迁移到 {self.file_path}')
 
     @property
     def original_fps(self) -> str:

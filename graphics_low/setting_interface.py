@@ -21,8 +21,8 @@ from one_dragon_qt.widgets.setting_card.combo_box_setting_card import (
 )
 from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
 
-from . import graphics_low_const
-from .graphics_low_config import GraphicsLowConfig
+from . import const
+from .config import GraphicsLowConfig
 from .graphics_low_snapshot import GraphicsLowSnapshotConfig
 
 if TYPE_CHECKING:
@@ -135,7 +135,7 @@ class GraphicsLowSettingInterface(VerticalScrollInterface, GroupIdMixin):
         super().on_interface_shown()
 
         self.config = self.ctx.run_context.get_config(
-            app_id=graphics_low_const.APP_ID,
+            app_id=const.APP_ID,
             instance_idx=self.ctx.current_instance_idx,
             group_id=self.group_id,
         )
@@ -147,8 +147,10 @@ class GraphicsLowSettingInterface(VerticalScrollInterface, GroupIdMixin):
             get_prop_adapter(self.config, 'target_antialias')
         )
         self.font_opt.init_with_adapter(get_prop_adapter(self.config, 'target_font'))
-        # 快照全局一份，所有实例共用
-        self.snapshot = GraphicsLowSnapshotConfig()
+        # 快照全局一份，所有实例共用，存在插件数据目录里
+        self.snapshot = GraphicsLowSnapshotConfig(
+            data_dir=self.ctx.get_plugin_data_dir(const.APP_ID),
+        )
         self._update_snapshot_display()
 
     def _update_snapshot_display(self) -> None:

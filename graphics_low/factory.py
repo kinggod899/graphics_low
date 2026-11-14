@@ -8,9 +8,9 @@ from one_dragon.base.operation.application.application_config import Application
 from one_dragon.base.operation.application.application_factory import ApplicationFactory
 from one_dragon.base.operation.application_base import Application
 
-from . import graphics_low_const
-from .graphics_low_app import GraphicsLowApp
-from .graphics_low_config import GraphicsLowConfig
+from . import const
+from .app import GraphicsLowApp
+from .config import GraphicsLowConfig
 
 if TYPE_CHECKING:
     from one_dragon.base.operation.application.application_run_record import (
@@ -23,9 +23,9 @@ if TYPE_CHECKING:
 class GraphicsLowAppFactory(ApplicationFactory):
 
     def __init__(self, ctx: ZContext) -> None:
-        ApplicationFactory.__init__(self, graphics_low_const)
+        ApplicationFactory.__init__(self, const)
         self.ctx: ZContext = ctx
-        # 插件仓库要求 _const.py 与 plugin.json 逐字节一致，排序值不能写在那里，改在这里指定。
+        # 排序值不属于 const.py 也不属于 plugin.json，改在这里指定。
         # 50 让本应用排在一龙里所有应用之前，后续应用都在低画质下运行。
         self.priority: int | None = 50
 

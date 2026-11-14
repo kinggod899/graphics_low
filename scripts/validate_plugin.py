@@ -17,13 +17,15 @@ from manifest_utils import (
     DEFAULT_MAX_ZIP_BYTES,
     PLUGIN_ID_PATTERN,
     RISK_TAGS,
-    const_path_for_app,
+    app_id_from_const,
+    find_const_files,
+    find_factory_files,
     find_package_dirs,
+    is_app_setting_file,
     is_dependency_file,
-    iter_declared_apps,
     load_json,
     plugin_id,
-    render_const,
+    read_const_value,
 )
 
 MAX_UNCOMPRESSED_FACTOR = 10
@@ -39,6 +41,7 @@ class Reporter:
     def __init__(self, quiet: bool) -> None:
         self.quiet = quiet
         self.errors: list[dict[str, str]] = []
+        self.warnings: list[dict[str, str]] = []
 
     @property
     def failed(self) -> bool:
@@ -47,6 +50,11 @@ class Reporter:
     def pass_(self, label: str, detail: str) -> None:
         if not self.quiet:
             print(f"PASS {label} {detail}")
+
+    def warn(self, code: str, detail: str) -> None:
+        self.warnings.append({"code": code, "detail": detail})
+        if not self.quiet:
+            print(f"WARN {code} {detail}")
 
     def fail(self, code: str, detail: str) -> None:
         self.errors.append({"code": code, "detail": detail})
@@ -79,10 +87,6 @@ def validate_manifest_fields(reporter: Reporter, manifest: dict[str, Any]) -> No
     else:
         reporter.pass_("versionCode", str(version_code))
 
-    for field in ("defaultGroup", "needNotify"):
-        if not isinstance(manifest.get(field), bool):
-            reporter.fail("INVALID_FIELD", field)
-
     author = manifest.get("author")
     if not isinstance(author, dict) or not is_non_empty_str(author.get("name")):
         reporter.fail("INVALID_FIELD", "author.name")
@@ -107,22 +111,19 @@ def validate_manifest_fields(reporter: Reporter, manifest: dict[str, Any]) -> No
     ):
         reporter.fail("INVALID_FIELD", "compatibility")
 
-    apps = manifest.get("apps", [])
-    if not isinstance(apps, list):
-        reporter.fail("INVALID_FIELD", "apps")
-        return
-    app_ids: set[str] = set()
-    for app in apps:
-        app_id = str(app.get("id", "")) if isinstance(app, dict) else ""
-        if (
-            app_id in app_ids
-            or not app_id.startswith(f"{current_id}_")
-            or not PLUGIN_ID_PATTERN.fullmatch(app_id)
-        ):
-            reporter.fail("APP_ID_MISMATCH", app_id or repr(app))
-        else:
-            app_ids.add(app_id)
-            reporter.pass_("app id", app_id)
+
+DEPRECATED_MANIFEST_FIELDS: dict[str, str] = {
+    "defaultGroup": "move to DEFAULT_GROUP in const.py",
+    "needNotify": "move to NEED_NOTIFY in const.py",
+    "apps": "ignored by the client; one plugin has one app",
+}
+
+
+def warn_deprecated_fields(reporter: Reporter, manifest: dict[str, Any]) -> None:
+    """旧版 plugin.json 的字段：已上架的插件还带着它们，只警告，不拒绝，也不再校验取值。"""
+    for field, hint in DEPRECATED_MANIFEST_FIELDS.items():
+        if field in manifest:
+            reporter.warn("DEPRECATED_FIELD", f"{field} ({hint})")
 
 
 def validate_cover(
@@ -159,6 +160,32 @@ def validate_cover(
     return path
 
 
+def validate_identity(reporter: Reporter, package_dir: Path) -> str:
+    """工厂和常量文件各恰好一个，APP_ID 合法且等于包目录名；返回 APP_ID。"""
+    for files, label, code in (
+        (find_factory_files(package_dir), "factory", "FACTORY_MISSING"),
+        (find_const_files(package_dir), "const", "CONST_MISSING"),
+    ):
+        if not files:
+            reporter.fail(code, f"{package_dir.name}/{label}.py")
+        elif len(files) > 1:
+            reporter.fail(
+                "MULTIPLE_FILES",
+                f"{package_dir.name}: {', '.join(path.name for path in files)}",
+            )
+        else:
+            reporter.pass_("file", f"{package_dir.name}/{files[0].name}")
+
+    app_id = app_id_from_const(package_dir)
+    if not PLUGIN_ID_PATTERN.fullmatch(app_id):
+        reporter.fail("INVALID_APP_ID", f"{app_id!r} (const APP_ID must be a string literal)")
+        return ""
+    reporter.pass_("APP_ID", app_id)
+    if package_dir.name != app_id:
+        reporter.fail("PACKAGE_MISMATCH", f"directory {package_dir.name!r} != APP_ID {app_id!r}")
+    return app_id
+
+
 def validate_package(
     reporter: Reporter,
     package_dir: Path,
@@ -177,38 +204,33 @@ def validate_package(
         return {}, None
 
     validate_manifest_fields(reporter, manifest)
+    warn_deprecated_fields(reporter, manifest)
     current_id = plugin_id(manifest)
 
-    if package_dir.name != current_id:
-        reporter.fail("PACKAGE_MISMATCH", f"directory {package_dir.name!r} != id {current_id!r}")
-    if expect_id is not None and current_id != expect_id:
-        reporter.fail("ID_MISMATCH", f"{current_id!r} != expected {expect_id!r}")
+    # 运行时身份只认常量文件的 APP_ID；plugin.json 的 id 只做一致性比对
+    const_id = validate_identity(reporter, package_dir)
+    if const_id and current_id != const_id:
+        reporter.fail("ID_MISMATCH", f"plugin.json id {current_id!r} != APP_ID {const_id!r}")
+    if expect_id is not None and const_id != expect_id:
+        reporter.fail("ID_MISMATCH", f"APP_ID {const_id!r} != expected {expect_id!r}")
     if expect_tag is not None and f"v{manifest.get('version', '')}" != expect_tag:
         reporter.fail("TAG_MISMATCH", f"tag {expect_tag!r} != v{manifest.get('version', '')}")
 
-    required = [
-        ("__init__.py", "INIT_MISSING"),
-        (f"{current_id}_factory.py", "FACTORY_MISSING"),
-    ]
-    for name, code in required:
-        if (package_dir / name).is_file():
-            reporter.pass_("file", f"{package_dir.name}/{name}")
-        else:
-            reporter.fail(code, f"{package_dir.name}/{name}")
+    if (package_dir / "__init__.py").is_file():
+        reporter.pass_("file", f"{package_dir.name}/__init__.py")
+    else:
+        reporter.fail("INIT_MISSING", f"{package_dir.name}/__init__.py")
 
-    targets = [(const_path_for_app(package_dir, manifest), render_const(manifest))]
-    for app in iter_declared_apps(manifest):
-        targets.append(
-            (const_path_for_app(package_dir, manifest, app), render_const(manifest, app))
-        )
-    for path, expected in targets:
-        display = path.relative_to(package_dir.parent).as_posix()
-        if not path.is_file():
-            reporter.fail("CONST_MISSING", display)
-        elif path.read_text(encoding="utf-8") != expected:
-            reporter.fail("CONST_OUTDATED", f"{display} (run scripts/generate_const.py)")
-        else:
-            reporter.pass_("const", display)
+    # 版本、作者、主页、简介只在 plugin.json 里，客户端直接读它，const 里不需要也不检查 PLUGIN_*；
+    # 名称在 const 里是手写的身份信息，只与 json 比对
+    const_files = find_const_files(package_dir)
+    if len(const_files) == 1:
+        const_name = read_const_value(const_files[0], "APP_NAME")
+        if const_name != manifest.get("name"):
+            reporter.fail(
+                "NAME_MISMATCH",
+                f"const APP_NAME {const_name!r} != plugin.json name {manifest.get('name')!r}",
+            )
 
     for path in package_dir.rglob("*"):
         if path.is_file() and is_dependency_file(path.name):
@@ -225,7 +247,7 @@ def validate_repo_root(reporter: Reporter, repo: Path, strict: bool) -> tuple[Pa
     candidates = find_package_dirs(repo)
     if len(candidates) != 1:
         names = ", ".join(path.name for path in candidates) or "none"
-        reporter.fail("PACKAGE_COUNT", f"expected one subdirectory with plugin.json, found: {names}")
+        reporter.fail("PACKAGE_COUNT", f"expected one subdirectory with factory and const files, found: {names}")
         return None, None
 
     # 旧模板会在根目录留一份同步的 plugin.json：与包内一致时容忍（提示删除），不一致才失败
@@ -326,7 +348,9 @@ def main() -> int:
             manifest, cover = validate_package(
                 reporter, package_dir, args.expect_id, args.expect_tag, args.max_cover_bytes
             )
-            has_app_setting = (package_dir / f"{plugin_id(manifest)}_app_setting.py").is_file()
+            has_app_setting = any(
+                is_app_setting_file(path.name) for path in package_dir.glob("*.py") if path.is_file()
+            )
             if root_manifest is not None and manifest:
                 if root_manifest == manifest:
                     reporter.pass_("root manifest", "matches package plugin.json (legacy copy, safe to delete)")
@@ -347,6 +371,7 @@ def main() -> int:
                 {
                     "ok": not reporter.failed,
                     "errors": reporter.errors,
+                    "warnings": reporter.warnings,
                     "manifest": manifest,
                     "coverFile": cover_file,
                     "hasAppSetting": has_app_setting,

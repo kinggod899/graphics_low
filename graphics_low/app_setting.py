@@ -5,7 +5,7 @@ from one_dragon_qt.services.app_setting.app_setting_provider import (
     SettingType,
 )
 
-from .graphics_low_const import APP_ID
+from .const import APP_ID
 
 
 class GraphicsLowAppSetting(AppSettingProvider):
@@ -16,6 +16,6 @@ class GraphicsLowAppSetting(AppSettingProvider):
 
     @staticmethod
     def get_setting_cls() -> type:
-        from .graphics_low_setting_interface import GraphicsLowSettingInterface
+        from .setting_interface import GraphicsLowSettingInterface
 
         return GraphicsLowSettingInterface
